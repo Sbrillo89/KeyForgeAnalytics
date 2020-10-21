@@ -31,10 +31,10 @@ import time
 
 # Defining the sql connection
 SQLconnStr = pyodbc.connect('Driver={SQL Server};'
-                      'Server=HP-ELITE-AMICAB;'
+                      'Server=;'
                       'Database=KeyForge;'
                       'UID=sa;'
-                      'PWD=123.ciao;')
+                      'PWD=;')
 
 TableLogAPI = "[stg].[PY_LogAPI]"
 
