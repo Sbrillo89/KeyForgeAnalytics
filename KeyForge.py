@@ -3,16 +3,22 @@
 Created on Fri Sep 25 14:28:09 2020
 
 @author: MarcoAmicabile
-"""
-"""
-https://www.keyforgegame.com/api/decks/?page=1&page_size=10&search=&power_level=0,11&chains=0,24&ordering=-date
-https://www.keyforgegame.com/api/decks/85ef4c17-2821-45d8-aa75-167057dfb33b/?links=cards,notes
+
+@description:
+    The script call the Keyforge API Decks to retrieve decks and cards data.
+    The API Call is parametric on results pagesize
+    The results are formatted and consolidated into SQL Server DB
+        PY Script API -> stg.PY_Table_Stage -> merge -> complete stg.PY_Table
+
+@Reference:
+    https://www.keyforgegame.com/api/decks/?page=1&page_size=10&search=&power_level=0,11&chains=0,24&ordering=-date
+    https://www.keyforgegame.com/api/decks/85ef4c17-2821-45d8-aa75-167057dfb33b/?links=cards,notes
 """
 
-#---------------------#
+#-------------------------#
 # Step 0
-# Librerie - Parametri
-#---------------------#
+# Libreries and parameters
+#-------------------------#
 
 # Loading libraries
 import datetime
@@ -23,55 +29,56 @@ import math
 import time
 
 
-# building the sql connection
+# Defining the sql connection
 SQLconnStr = pyodbc.connect('Driver={SQL Server};'
-                      'Server=sqlinstance;'
+                      'Server=HP-ELITE-AMICAB;'
                       'Database=KeyForge;'
                       'UID=sa;'
-                      'PWD=password;')
+                      'PWD=123.ciao;')
 
 TableLogAPI = "[stg].[PY_LogAPI]"
 
 
 # API Parameters
 URL = "https://www.keyforgegame.com/api/decks/"
-
-#page = 204124
 pagesize = 10
 
-#chiamata API per il numero totale di Decks
+# Generic API call to get total number of decks
 response = requests.get(URL)
 response_output = response.json()
 decktotalnumber = response_output['count']
 
-pagetotalnumber = math.floor(decktotalnumber/10)
+# Calculation of last page to get depenging from pagesize parameter
+pagetotalnumber = math.floor(decktotalnumber/pagesize)
 
+# Retrieve from SQL the last pagenumber downloaded from API
 SQLquery = "select max([pagenumber]) FROM [KeyForge].[stg].[PY_Decks]"
 lpquery = pd.read_sql(SQLquery, SQLconnStr)
 lastpage = lpquery.iat[0,0]
 
-#Operazioni da ciclare x page
-#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--
+#Cycle Operations for each page
+#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--#--
 
-#-------------#
-# Step 1
-# Chiamata API
-#-------------#
 
-for pageproc in range(lastpage, lastpage + 20):
-
+for pageproc in range(lastpage, lastpage + 200):
+    
     print("processing page number: ", pageproc)
     
-    #Impostazione URL API da chiamare
+#-------------#
+# Step 1
+# API CALL
+#-------------#
+        
+    #Define API URL call
     apiurl = URL + "?page=" + str(pageproc) + "&links=cards&page_size=" + str(pagesize) + "&ordering=-date"
     
-    #chiamata API
+    #API Call
     response = requests.get(apiurl)
     
-    #check chiamata API
+    #Get API outcome
     response_statuscode = response.status_code
         
-    # Insert outcome row in Log_API_Calls
+    #Insert API outcome row in SQL log Table
     with SQLconnStr.cursor() as cur:
         cur.execute("INSERT INTO"+ TableLogAPI +"([URL], [Datetime], [ResponseCode]) values (?,?,?)"
             , apiurl
@@ -79,33 +86,33 @@ for pageproc in range(lastpage, lastpage + 20):
             , response_statuscode
             )
     
-    #Output json della chiamata api
+    #Json API Response
     response_output = response.json()
     
-    #diramazione degli output ricevuti
+    #Prepare API response
     decktotalnumber = response_output['count']
     response_data_houses = response_output['_linked']['houses']
     response_data_cards = response_output['_linked']['cards']
     response_data_decks = response_output['data']
     
     
-    #------------------------------#
+    #--------------------------------------#
     # Step 2
-    # Tabellizzazione risultati API
-    #------------------------------#
+    # Dataframes Creation from API results
+    #--------------------------------------#
     
-    # Houses
+    # ---------------------------------------------------- Houses
     df_houses = pd.DataFrame(response_data_houses)
     
-    # Cards
+    # ---------------------------------------------------- Cards
     df_cards = pd.DataFrame(response_data_cards)
     
-    # Decks
+    # ---------------------------------------------------- Decks
     df_decks = pd.DataFrame(response_data_decks)
     df_decks['pagenumber'] = pageproc
     
     
-    # Deck-Cards
+    # ---------------------------------------------------- Deck-Cards
     deckdetails_list = []
     for t1_elem in response_data_decks:
         for t2_elem in t1_elem['_links']['cards']:        
@@ -114,7 +121,7 @@ for pageproc in range(lastpage, lastpage + 20):
     df_deckcard = pd.DataFrame(deckdetails_list)       
     df_deckcard.columns = ['card_id', 'deck_id']
       
-    # Deck-Houses
+    # ---------------------------------------------------- Deck-Houses
     deckdetails_list = []
     for t1_elem in response_data_decks:
         for t2_elem in t1_elem['_links']['houses']:        
@@ -126,10 +133,10 @@ for pageproc in range(lastpage, lastpage + 20):
     
     #------------------------------#
     # Step 3
-    # Salvataggio dati su SQL
+    # Consolidate data to SQL
     #------------------------------#
     
-    # Houses
+    # ---------------------------------------------------- Houses
     SQLstagingtable = "[stg].[PY_Houses_Stage]"
     
     #Truncate sql staging table
@@ -153,7 +160,7 @@ for pageproc in range(lastpage, lastpage + 20):
         
         
         
-    #Cards
+    # ---------------------------------------------------- Cards
     SQLstagingtable = "[stg].[PY_Cards_Stage]"
     
     #Truncate sql staging table
@@ -190,7 +197,7 @@ for pageproc in range(lastpage, lastpage + 20):
     
     
     
-    #Decks
+    # ---------------------------------------------------- Decks
     SQLstagingtable = "[stg].[PY_Decks_Stage]"
     
     #Truncate sql staging table
@@ -245,7 +252,7 @@ for pageproc in range(lastpage, lastpage + 20):
         
         
        
-    #DecksCards
+    # ---------------------------------------------------- DecksCards
     SQLstagingtable = "[stg].[PY_DecksCards_Stage]"
     
     #Truncate sql staging table
@@ -266,4 +273,6 @@ for pageproc in range(lastpage, lastpage + 20):
     with SQLconnStr.cursor() as cur:
         cur.execute(statement)  
         
+        
+    # Wait seconds to avoid api block     
     time.sleep(10)
